@@ -1,0 +1,84 @@
+[package]
+name = "eidos"
+version = "0.1.0"
+edition = "2021"
+authors = ["Eidos Development Team"]
+description = "The Eidos Programming Language"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/eidos-lang/eidos"
+keywords = ["language", "compiler", "dsl"]
+categories = ["compilers", "development-tools"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# パーサー
+pest = "2.7.6"
+pest_derive = "2.7.6"
+nom = "7.1.3"
+logos = "0.13.0"
+
+# 並行処理
+rayon = "1.8.0"
+crossbeam = "0.8.2"
+parking_lot = "0.12.1"
+
+# ユーティリティ
+lazy_static = "1.4.0"
+thiserror = "1.0.50"
+anyhow = "1.0.75"
+log = "0.4.20"
+env_logger = "0.10.1"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_json = "1.0.108"
+toml = "0.8.8"
+clap = { version = "4.4.11", features = ["derive"] }
+fs_extra = "1.3.0"
+tempfile = "3.8.1"
+regex = "1.10.2"
+colored = "2.0.4"
+enum_dispatch = "0.3.12"
+bitflags = "2.4.1"
+dashmap = "5.5.3"
+im = "15.1.0"
+miette = { version = "5.10.0", features = ["fancy"] }
+derive_more = "0.99.17"
+
+# LLVM バインディング
+inkwell = { version = "0.2.0", features = ["llvm16-0"] }
+llvm-sys = "160.1.3"
+
+# WebAssembly サポート
+walrus = "0.20.1"
+wasmtime = "13.0.0"
+wasmtime-wasi = "13.0.0"
+wasm-encoder = "0.33.2"
+wasmparser = "0.112.0"
+
+[dev-dependencies]
+criterion = "0.5.1"
+rstest = "0.18.2"
+proptest = "1.4.0"
+test-case = "3.3.1"
+
+[build-dependencies]
+build-deps = "0.1.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true
+opt-level = 3
+
+[profile.dev]
+debug = true
+opt-level = 0
+
+[workspace]
+members = [
+    "tools/eidos-lsp",
+    "tools/eidos-playground",
+]

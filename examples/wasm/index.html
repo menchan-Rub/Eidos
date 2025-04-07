@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eidos WebAssembly計算機</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .calculator {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .calculator.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    input, select, button {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 10px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    
+    button:hover {
+      background-color: #2980b9;
+    }
+    
+    .result-box {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      border-left: 4px solid #3498db;
+    }
+    
+    .log-container {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+    }
+    
+    #log-output {
+      height: 200px;
+      overflow-y: auto;
+      background-color: #f8f9fa;
+      border: 1px solid #ddd;
+      padding: 10px;
+      font-family: monospace;
+      white-space: pre;
+      border-radius: 4px;
+    }
+    
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    
+    #loading {
+      text-align: center;
+      padding: 20px;
+      font-weight: bold;
+      color: #3498db;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 30px;
+      color: #7f8c8d;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Eidos WebAssembly計算機</h1>
+  
+  <div id="loading">WebAssemblyモジュールを読み込み中...</div>
+  
+  <div id="calculator-ui" class="calculator disabled">
+    <div class="form-group">
+      <label for="num1">数値1:</label>
+      <input type="number" id="num1" value="10">
+    </div>
+    
+    <div class="form-group">
+      <label for="operation">演算:</label>
+      <select id="operation">
+        <option value="add">加算 (+)</option>
+        <option value="subtract">減算 (-)</option>
+        <option value="multiply">乗算 (×)</option>
+        <option value="divide">除算 (÷)</option>
+      </select>
+    </div>
+    
+    <div class="form-group">
+      <label for="num2">数値2:</label>
+      <input type="number" id="num2" value="5">
+    </div>
+    
+    <button id="calculate">計算</button>
+    
+    <div class="result-box">
+      <label>結果:</label>
+      <div id="result">-</div>
+    </div>
+  </div>
+  
+  <div class="log-container">
+    <h2>実行ログ</h2>
+    <div id="log-output"></div>
+    <div class="controls">
+      <button id="clear-log">ログをクリア</button>
+    </div>
+  </div>
+  
+  <div class="footer">
+    <p>Eidos言語 WebAssemblyバックエンドデモ</p>
+    <p>WASMファイルは<code>eid build examples/wasm/simple_calculator.eid --target wasm</code>で生成できます</p>
+  </div>
+  
+  <script src="wasm_interface.js"></script>
+</body>
+</html> 

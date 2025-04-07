@@ -1,0 +1,411 @@
+// Eidos言語での型検査DSL実装
+
+// 型検査用のDSL定義
+syntax typesystem {
+    // 型式
+    rule type_expr = basic_type | array_type | function_type;
+    rule basic_type = identifier;
+    rule array_type = "[" type_expr "]";
+    rule function_type = "fn" "(" param_types? ")" "->" type_expr;
+    rule param_types = type_expr ("," type_expr)*;
+    
+    // 型制約
+    rule constraint = type_expr "=" type_expr;
+    rule subtype = type_expr "<:" type_expr;
+    
+    // 型判断
+    rule judgment = "⊢" expr ":" type_expr;
+    rule typing_rule = premises? "⟹" judgment;
+    rule premises = judgment ("," judgment)*;
+}
+
+// 型の定義
+enum Type {
+    Int,
+    Float,
+    Bool,
+    String,
+    Array(Box<Type>),
+    Function(Vec<Type>, Box<Type>),
+    Var(String), // 型変数（型推論用）
+    Unknown,
+}
+
+impl Type {
+    fn to_string(&self): String {
+        match self {
+            Type::Int => "Int".to_string(),
+            Type::Float => "Float".to_string(),
+            Type::Bool => "Bool".to_string(),
+            Type::String => "String".to_string(),
+            Type::Array(elem_type) => format("[{}]", elem_type.to_string()),
+            Type::Function(params, ret) => {
+                let params_str = params.iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format("fn({}) -> {}", params_str, ret.to_string())
+            },
+            Type::Var(name) => format("'{}", name),
+            Type::Unknown => "?".to_string(),
+        }
+    }
+}
+
+// 型環境
+struct TypeEnv {
+    bindings: HashMap<String, Type>,
+    constraints: Vec<(Type, Type)>,
+}
+
+impl TypeEnv {
+    fn new(): TypeEnv {
+        TypeEnv {
+            bindings: HashMap::new(),
+            constraints: Vec::new(),
+        }
+    }
+    
+    fn add_binding(&mut self, name: String, type_: Type) {
+        self.bindings.insert(name, type_);
+    }
+    
+    fn get_binding(&self, name: &String): Option<Type> {
+        self.bindings.get(name).cloned()
+    }
+    
+    fn add_constraint(&mut self, lhs: Type, rhs: Type) {
+        self.constraints.push((lhs, rhs));
+    }
+}
+
+// 型検査セマンティクス
+semantics typesystem::judgment(_, expr, _, type_) => {
+    TypeJudgment {
+        expr,
+        type_,
+    }
+}
+
+// 型推論ルール
+semantics typesystem::typing_rule(premises, _, judgment) => {
+    TypeRule {
+        premises,
+        conclusion: judgment,
+    }
+}
+
+// 二項演算子の型検査ルール
+typesystem add_rule {
+    "⊢" e1 ":" t1, "⊢" e2 ":" t2, t1 "=" Type::Int, t2 "=" Type::Int "⟹" "⊢" BinaryExpr("+", e1, e2) ":" Type::Int
+}
+
+typesystem sub_rule {
+    "⊢" e1 ":" t1, "⊢" e2 ":" t2, t1 "=" Type::Int, t2 "=" Type::Int "⟹" "⊢" BinaryExpr("-", e1, e2) ":" Type::Int
+}
+
+typesystem mul_rule {
+    "⊢" e1 ":" t1, "⊢" e2 ":" t2, t1 "=" Type::Int, t2 "=" Type::Int "⟹" "⊢" BinaryExpr("*", e1, e2) ":" Type::Int
+}
+
+typesystem div_rule {
+    "⊢" e1 ":" t1, "⊢" e2 ":" t2, t1 "=" Type::Int, t2 "=" Type::Int "⟹" "⊢" BinaryExpr("/", e1, e2) ":" Type::Int
+}
+
+// 比較演算子の型検査ルール
+typesystem eq_rule {
+    "⊢" e1 ":" t1, "⊢" e2 ":" t2, t1 "=" t2 "⟹" "⊢" BinaryExpr("==", e1, e2) ":" Type::Bool
+}
+
+typesystem lt_rule {
+    "⊢" e1 ":" t1, "⊢" e2 ":" t2, t1 "=" Type::Int, t2 "=" Type::Int "⟹" "⊢" BinaryExpr("<", e1, e2) ":" Type::Bool
+}
+
+// 関数定義の型検査ルール
+typesystem function_rule {
+    // 各パラメータに型を割り当て
+    "⊢" params ":" param_types,
+    // 関数本体を型検査
+    "⊢" body ":" ret_type
+    "⟹" 
+    "⊢" Function(name, params, ret_type_annot, body) ":" Type::Function(param_types, ret_type)
+}
+
+// 型検査器
+struct TypeChecker {
+    env: TypeEnv,
+    next_type_var: Int,
+}
+
+impl TypeChecker {
+    fn new(): TypeChecker {
+        TypeChecker {
+            env: TypeEnv::new(),
+            next_type_var: 0,
+        }
+    }
+    
+    fn fresh_type_var(&mut self): Type {
+        let var_name = format("t{}", self.next_type_var);
+        self.next_type_var += 1;
+        Type::Var(var_name)
+    }
+    
+    fn infer(&mut self, expr: &ASTNode): Type {
+        match expr.type_ {
+            NodeType::LiteralExpr => {
+                // リテラルの型を判定
+                if expr.value.starts_with("\"") && expr.value.ends_with("\"") {
+                    Type::String
+                } else if expr.value.contains(".") {
+                    Type::Float
+                } else if expr.value == "true" || expr.value == "false" {
+                    Type::Bool
+                } else {
+                    // 数値リテラルと仮定
+                    Type::Int
+                }
+            },
+            
+            NodeType::IdentifierExpr => {
+                // 変数の型を環境から取得
+                match self.env.get_binding(&expr.value) {
+                    Some(type_) => type_,
+                    None => {
+                        println("未定義の変数: {}", expr.value);
+                        Type::Unknown
+                    }
+                }
+            },
+            
+            NodeType::BinaryExpr => {
+                // 左右のオペランドを型推論
+                let left_type = self.infer(&expr.children[0]);
+                let right_type = self.infer(&expr.children[1]);
+                
+                // 演算子に基づいて結果の型を決定
+                match expr.value.as_str() {
+                    "+" | "-" | "*" | "/" => {
+                        // 数値型同士の演算
+                        self.env.add_constraint(left_type.clone(), Type::Int);
+                        self.env.add_constraint(right_type.clone(), Type::Int);
+                        Type::Int
+                    },
+                    "==" | "!=" => {
+                        // 等値比較：同じ型同士のみ比較可能
+                        self.env.add_constraint(left_type.clone(), right_type.clone());
+                        Type::Bool
+                    },
+                    "<" | "<=" | ">" | ">=" => {
+                        // 順序比較：数値型のみ
+                        self.env.add_constraint(left_type.clone(), Type::Int);
+                        self.env.add_constraint(right_type.clone(), Type::Int);
+                        Type::Bool
+                    },
+                    "&&" | "||" => {
+                        // 論理演算：ブール型のみ
+                        self.env.add_constraint(left_type.clone(), Type::Bool);
+                        self.env.add_constraint(right_type.clone(), Type::Bool);
+                        Type::Bool
+                    },
+                    _ => {
+                        println("未知の演算子: {}", expr.value);
+                        Type::Unknown
+                    }
+                }
+            },
+            
+            NodeType::Function => {
+                // 関数のパラメータ型を収集
+                let mut param_types = Vec::new();
+                for i in 0..(expr.children.len() - 1) {
+                    let param = &expr.children[i];
+                    if param.type_ == NodeType::Param {
+                        let param_type = self.type_from_string(&param.value);
+                        param_types.push(param_type);
+                        self.env.add_binding(param.children[0].value.clone(), param_type.clone());
+                    }
+                }
+                
+                // 関数本体を型検査
+                let body = &expr.children[expr.children.len() - 1];
+                let return_type = self.infer(body);
+                
+                // 関数型を構築
+                Type::Function(param_types, Box::new(return_type))
+            },
+            
+            _ => {
+                println("未実装の式タイプ: {:?}", expr.type_);
+                Type::Unknown
+            }
+        }
+    }
+    
+    fn type_from_string(&self, type_str: &String): Type {
+        match type_str.as_str() {
+            "Int" => Type::Int,
+            "Float" => Type::Float,
+            "Bool" => Type::Bool,
+            "String" => Type::String,
+            _ => {
+                if type_str.starts_with("[") && type_str.ends_with("]") {
+                    // 配列型
+                    let elem_type_str = type_str.substring(1, type_str.len() - 1);
+                    let elem_type = self.type_from_string(&elem_type_str);
+                    Type::Array(Box::new(elem_type))
+                } else {
+                    println("未知の型: {}", type_str);
+                    Type::Unknown
+                }
+            }
+        }
+    }
+}
+
+// メイン関数 - 型検査のテスト
+fn main(): Int {
+    // サンプルASTの作成
+    let ast = create_sample_ast();
+    
+    // 型検査
+    let mut checker = TypeChecker::new();
+    let result_type = checker.infer(&ast);
+    
+    println("AST式の型: {}", result_type.to_string());
+    
+    return 0;
+}
+
+// サンプルAST作成関数
+fn create_sample_ast(): ASTNode {
+    // 以下のコードのASTを構築:
+    // fn max(a: Int, b: Int): Int {
+    //     if a > b {
+    //         return a;
+    //     } else {
+    //         return b;
+    //     }
+    // }
+    
+    // パラメータa
+    let param_a = ASTNode {
+        type_: NodeType::Param,
+        value: "Int".to_string(),
+        children: vec![
+            ASTNode {
+                type_: NodeType::IdentifierExpr,
+                value: "a".to_string(),
+                children: vec![],
+                location: SourceLocation { line: 1, column: 8, length: 1 },
+            }
+        ],
+        location: SourceLocation { line: 1, column: 8, length: 6 },
+    };
+    
+    // パラメータb
+    let param_b = ASTNode {
+        type_: NodeType::Param,
+        value: "Int".to_string(),
+        children: vec![
+            ASTNode {
+                type_: NodeType::IdentifierExpr,
+                value: "b".to_string(),
+                children: vec![],
+                location: SourceLocation { line: 1, column: 16, length: 1 },
+            }
+        ],
+        location: SourceLocation { line: 1, column: 16, length: 6 },
+    };
+    
+    // 条件式 a > b
+    let condition = ASTNode {
+        type_: NodeType::BinaryExpr,
+        value: ">".to_string(),
+        children: vec![
+            ASTNode {
+                type_: NodeType::IdentifierExpr,
+                value: "a".to_string(),
+                children: vec![],
+                location: SourceLocation { line: 2, column: 8, length: 1 },
+            },
+            ASTNode {
+                type_: NodeType::IdentifierExpr,
+                value: "b".to_string(),
+                children: vec![],
+                location: SourceLocation { line: 2, column: 12, length: 1 },
+            }
+        ],
+        location: SourceLocation { line: 2, column: 10, length: 1 },
+    };
+    
+    // return a
+    let then_branch = ASTNode {
+        type_: NodeType::ReturnStmt,
+        value: "".to_string(),
+        children: vec![
+            ASTNode {
+                type_: NodeType::IdentifierExpr,
+                value: "a".to_string(),
+                children: vec![],
+                location: SourceLocation { line: 3, column: 16, length: 1 },
+            }
+        ],
+        location: SourceLocation { line: 3, column: 9, length: 9 },
+    };
+    
+    // return b
+    let else_branch = ASTNode {
+        type_: NodeType::ReturnStmt,
+        value: "".to_string(),
+        children: vec![
+            ASTNode {
+                type_: NodeType::IdentifierExpr,
+                value: "b".to_string(),
+                children: vec![],
+                location: SourceLocation { line: 5, column: 16, length: 1 },
+            }
+        ],
+        location: SourceLocation { line: 5, column: 9, length: 9 },
+    };
+    
+    // if文
+    let if_stmt = ASTNode {
+        type_: NodeType::IfStmt,
+        value: "".to_string(),
+        children: vec![
+            condition,
+            ASTNode {
+                type_: NodeType::Block,
+                value: "".to_string(),
+                children: vec![then_branch],
+                location: SourceLocation { line: 2, column: 14, length: 28 },
+            },
+            ASTNode {
+                type_: NodeType::Block,
+                value: "".to_string(),
+                children: vec![else_branch],
+                location: SourceLocation { line: 4, column: 14, length: 28 },
+            }
+        ],
+        location: SourceLocation { line: 2, column: 5, length: 65 },
+    };
+    
+    // 関数本体ブロック
+    let function_body = ASTNode {
+        type_: NodeType::Block,
+        value: "".to_string(),
+        children: vec![if_stmt],
+        location: SourceLocation { line: 1, column: 28, length: 79 },
+    };
+    
+    // 関数定義
+    let function = ASTNode {
+        type_: NodeType::Function,
+        value: "max".to_string(),
+        children: vec![param_a, param_b, function_body],
+        location: SourceLocation { line: 1, column: 1, length: 107 },
+    };
+    
+    function
+} 

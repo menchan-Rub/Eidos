@@ -1,0 +1,75 @@
+// WebAssemblyにコンパイルする簡易計算機
+
+// 外部関数のインポート
+extern "env" {
+    fn console_log(message_ptr: Int, message_len: Int);
+}
+
+// 文字列リテラルを安全にログ出力する関数
+fn log(message: String): Unit {
+    unsafe {
+        console_log(
+            message.as_ptr(),
+            message.len()
+        );
+    }
+}
+
+// 加算関数
+export fn add(a: Int, b: Int): Int {
+    let result = a + b;
+    log("加算を実行: " + a.to_string() + " + " + b.to_string() + " = " + result.to_string());
+    return result;
+}
+
+// 減算関数
+export fn subtract(a: Int, b: Int): Int {
+    let result = a - b;
+    log("減算を実行: " + a.to_string() + " - " + b.to_string() + " = " + result.to_string());
+    return result;
+}
+
+// 乗算関数
+export fn multiply(a: Int, b: Int): Int {
+    let result = a * b;
+    log("乗算を実行: " + a.to_string() + " * " + b.to_string() + " = " + result.to_string());
+    return result;
+}
+
+// 除算関数
+export fn divide(a: Int, b: Int): Int {
+    if b == 0 {
+        log("エラー: ゼロ除算");
+        return 0;
+    }
+    
+    let result = a / b;
+    log("除算を実行: " + a.to_string() + " / " + b.to_string() + " = " + result.to_string());
+    return result;
+}
+
+// メイン関数（WebAssemblyへのエントリーポイント）
+export fn main(): Int {
+    log("WebAssembly計算機を開始");
+    
+    // テスト計算
+    let a = 10;
+    let b = 5;
+    
+    let sum = add(a, b);
+    let difference = subtract(a, b);
+    let product = multiply(a, b);
+    let quotient = divide(a, b);
+    
+    log("計算機の演算結果:");
+    log("10 + 5 = " + sum.to_string());
+    log("10 - 5 = " + difference.to_string());
+    log("10 * 5 = " + product.to_string());
+    log("10 / 5 = " + quotient.to_string());
+    
+    // エラーケースのテスト
+    let division_by_zero = divide(10, 0);
+    
+    log("計算機を終了");
+    return 0;
+} 

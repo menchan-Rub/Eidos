@@ -1,0 +1,144 @@
+// Eidosの所有権システムを拡張するサンプル
+
+// 所有権修飾子を定義するDSL
+syntax ownership {
+    // @single: 唯一の所有者
+    // @shared: 共有所有（参照カウント）
+    // @pool(N): オブジェクトプール（最大N個）
+    // @region(R): リージョンベースのメモリ管理
+    rule memory_attr = "@" ("single" | "shared" | "pool" "(" number ")" | "region" "(" identifier ")");
+    
+    // 所有権修飾子を型に適用
+    rule attributed_type = memory_attr? identifier generic_args?;
+    
+    // ジェネリック引数
+    rule generic_args = "<" (attributed_type ("," attributed_type)*)? ">";
+}
+
+// リージョンとメモリプールの定義
+struct MemoryRegion {
+    name: String,
+    bytes_allocated: Int,
+    capacity: Int,
+}
+
+impl MemoryRegion {
+    fn new(name: String, capacity: Int): @single MemoryRegion {
+        @single MemoryRegion {
+            name,
+            bytes_allocated: 0,
+            capacity,
+        }
+    }
+    
+    fn allocate(&mut self, size: Int): Bool {
+        if self.bytes_allocated + size <= self.capacity {
+            self.bytes_allocated += size;
+            true
+        } else {
+            false
+        }
+    }
+    
+    fn deallocate(&mut self, size: Int) {
+        self.bytes_allocated -= size;
+        if self.bytes_allocated < 0 {
+            self.bytes_allocated = 0;
+        }
+    }
+}
+
+// プールベースのデータ構造
+struct @pool(100) PooledObject {
+    id: Int,
+    data: [Int; 1024], // 各オブジェクトは4KBを消費
+}
+
+impl PooledObject {
+    fn new(id: Int): @pool(100) PooledObject {
+        @pool(100) PooledObject {
+            id,
+            data: [0; 1024],
+        }
+    }
+}
+
+// リージョンベースのメモリ管理を使用する関数
+fn process_data_in_region(data: &[Int]): Int {
+    // 固定サイズのリージョンを作成
+    let temp_region = @single MemoryRegion::new("temp", 1024 * 1024);
+    
+    // リージョン内のデータ構造
+    struct @region(temp_region) TempData {
+        values: Vec<Int>,
+        sum: Int,
+    }
+    
+    // リージョン内にデータを配置
+    let temp = @region(temp_region) TempData {
+        values: Vec::from(data),
+        sum: 0,
+    };
+    
+    // データを処理
+    for value in &temp.values {
+        temp.sum += value;
+    }
+    
+    // 結果を返す（リージョンは自動的にクリーンアップされる）
+    temp.sum
+}
+
+// 共有所有権のデータ構造
+struct @shared SharedConfig {
+    name: String,
+    settings: HashMap<String, String>,
+}
+
+impl SharedConfig {
+    fn new(name: String): @shared SharedConfig {
+        @shared SharedConfig {
+            name,
+            settings: HashMap::new(),
+        }
+    }
+    
+    fn set(&mut self, key: String, value: String) {
+        self.settings.insert(key, value);
+    }
+    
+    fn get(&self, key: &String): Option<String> {
+        self.settings.get(key).map(|v| v.clone())
+    }
+}
+
+fn main(): Int {
+    // 共有設定オブジェクトを作成
+    let config = @shared SharedConfig::new("AppConfig");
+    
+    // 複数の場所で同じオブジェクトを共有
+    config.set("theme".to_string(), "dark".to_string());
+    
+    {
+        // 別のスコープでも同じオブジェクトを使用
+        let config2 = config; // 参照カウントが増加
+        config2.set("fontSize".to_string(), "12".to_string());
+        
+        // config2がスコープ外になっても、オブジェクトは解放されない
+    }
+    
+    // メモリプールからオブジェクトを割り当て
+    let objects = Vec::new();
+    for i in 0..10 {
+        // プールから最大100個まで割り当て可能
+        let obj = @pool(100) PooledObject::new(i);
+        objects.push(obj);
+    }
+    
+    // リージョンベースのメモリ管理を使用
+    let data = [1, 2, 3, 4, 5];
+    let sum = process_data_in_region(&data);
+    println!("合計: {}", sum);
+    
+    return 0;
+} 

@@ -21,10 +21,31 @@ impl TypeChecker {
     
     /// ASTの型チェックを実行
     pub fn check(&mut self, program: Program) -> Result<Program> {
-        // 実際の型推論・型チェックの実装
-        info!("型チェックを実行中");
+        // 型チェックの開始をログに記録
+        info!("型チェックを実行中: {} ノード", program.node_count());
         
-        // 各ノードを走査して型付け
+        // 型チェックの進捗を追跡するためのカウンター
+        let mut checked_nodes = 0;
+        let total_nodes = program.node_count();
+        
+        // 型チェックの開始時間を記録
+        let start_time = std::time::Instant::now();
+        
+        // 型チェックの詳細ログを有効化
+        debug!("型チェックの詳細ログを有効化しました");
+        
+        // 型チェックの前処理
+        trace!("型チェックの前処理を開始");
+        // 型環境の初期化
+        self.initialize_type_environment(&program)?;
+        
+        // 前処理：型宣言の収集と登録
+        self.collect_type_declarations(&program)?;
+        
+        // 関数シグネチャの収集（相互再帰関数のサポートのため）
+        self.collect_function_signatures(&program)?;
+        
+        // 各ノードを走査して型付け（ボトムアップ方式）
         for node_id in program.traverse_post_order() {
             let node = program.get_node(node_id).ok_or_else(|| {
                 EidosError::Internal(format!("ノードが見つかりません: {:?}", node_id))
@@ -33,6 +54,12 @@ impl TypeChecker {
             let inferred_type = self.infer_node_type(&program, node)?;
             self.node_types.insert(node_id, inferred_type);
         }
+        
+        // 型制約の検証
+        self.verify_type_constraints(&program)?;
+        
+        // ジェネリック型の具体化
+        self.resolve_generic_types(&program)?;
         
         // 型情報を含むプログラムを生成
         let mut typed_program = program.clone();
@@ -47,10 +74,137 @@ impl TypeChecker {
             }
         }
         
-        info!("型チェック完了");
+        // 最終検証：未解決の型変数がないことを確認
+        self.verify_no_unresolved_types(&typed_program)?;
+        
+        info!("型チェック完了: {} ノードを型付けしました", self.node_types.len());
         Ok(typed_program)
     }
     
+    /// 型環境の初期化
+    fn initialize_type_environment(&mut self, program: &Program) -> Result<()> {
+        // 標準ライブラリの型を登録
+        self.register_stdlib_types();
+        
+        // プログラム固有の初期化
+        self.type_env.enter_scope();
+        Ok(())
+    }
+    
+    /// 標準ライブラリの型を登録
+    fn register_stdlib_types(&mut self) {
+        // 基本型の登録
+        self.type_env.register_primitive_types();
+        
+        // コレクション型の登録（Vector, HashMap, HashSet, LinkedList, Queue, Stack, PriorityQueue）
+        self.type_env.register_collection_types();
+        
+        // その他の標準ライブラリ型の登録
+        self.type_env.register_io_types();
+        self.type_env.register_math_types();
+        self.type_env.register_string_types();
+    }
+    
+    /// 型宣言の収集と登録
+    fn collect_type_declarations(&mut self, program: &Program) -> Result<()> {
+        // 構造体、列挙型、型エイリアスなどの宣言を収集
+        for node_id in program.traverse_pre_order() {
+            let node = program.get_node(node_id).ok_or_else(|| {
+                EidosError::Internal(format!("ノードが見つかりません: {:?}", node_id))
+            })?;
+            
+            match &node.kind {
+                Node::StructDecl(struct_decl) => {
+                    self.register_struct_declaration(struct_decl, &node.location)?;
+                },
+                Node::EnumDecl(enum_decl) => {
+                    self.register_enum_declaration(enum_decl, &node.location)?;
+                },
+                Node::TypeAlias(alias) => {
+                    self.register_type_alias(alias, &node.location)?;
+                },
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    
+    /// 関数シグネチャの収集
+    fn collect_function_signatures(&mut self, program: &Program) -> Result<()> {
+        for node_id in program.traverse_pre_order() {
+            let node = program.get_node(node_id).ok_or_else(|| {
+                EidosError::Internal(format!("ノードが見つかりません: {:?}", node_id))
+            })?;
+            
+            if let Node::FunctionDecl(func_decl) = &node.kind {
+                let func_type = self.create_function_type(func_decl, program)?;
+                self.type_env.register_function(&func_decl.name, func_type);
+            }
+        }
+        Ok(())
+    }
+    
+    /// 型制約の検証
+    fn verify_type_constraints(&self, program: &Program) -> Result<()> {
+        // 型制約（インターフェース実装、ジェネリック制約など）を検証
+        for (node_id, node_type) in &self.node_types {
+            let node = program.get_node(*node_id).ok_or_else(|| {
+                EidosError::Internal(format!("ノードが見つかりません: {:?}", node_id))
+            })?;
+            
+            // 型アノテーションと推論された型の互換性チェック
+            if let Some(type_annotation) = &node.type_annotation {
+                let annotated_type = self.type_env.resolve_type_annotation(type_annotation)?;
+                if !self.type_env.is_compatible(node_type, &annotated_type) {
+                    return Err(EidosError::Type {
+                        message: format!("型アノテーションと実際の型が一致しません: 期待 {:?}, 実際 {:?}", 
+                                        annotated_type, node_type),
+                        location: node.location.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+    
+    /// ジェネリック型の具体化
+    fn resolve_generic_types(&mut self, program: &Program) -> Result<()> {
+        // 型推論の結果に基づいてジェネリック型パラメータを具体的な型に置き換える
+        let mut substitutions = HashMap::new();
+        
+        // ジェネリック型の制約を収集
+        for (node_id, node_type) in &self.node_types {
+            let node = program.get_node(*node_id).ok_or_else(|| {
+                EidosError::Internal(format!("ノードが見つかりません: {:?}", node_id))
+            })?;
+            
+            self.collect_generic_constraints(node, node_type, &mut substitutions)?;
+        }
+        
+        // 収集した制約に基づいて型を具体化
+        for (node_id, node_type) in self.node_types.iter_mut() {
+            *node_type = self.type_env.substitute_generic_types(node_type, &substitutions)?;
+        }
+        
+        Ok(())
+    }
+    
+    /// 未解決の型変数がないことを確認
+    fn verify_no_unresolved_types(&self, program: &Program) -> Result<()> {
+        for (node_id, node_type) in &self.node_types {
+            if node_type.has_unknown_types() {
+                let node = program.get_node(*node_id).ok_or_else(|| {
+                    EidosError::Internal(format!("ノードが見つかりません: {:?}", node_id))
+                })?;
+                
+                return Err(EidosError::Type {
+                    message: format!("型推論に失敗しました: 未解決の型 {:?}", node_type),
+                    location: node.location.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
     /// ノードの型を推論
     fn infer_node_type(&mut self, program: &Program, node: &ASTNode) -> Result<Type> {
         match &node.kind {
@@ -473,6 +627,7 @@ impl TypeChecker {
 macro_rules! info {
     ($($arg:tt)*) => {
         // 実際の実装ではログを出力する
-        println!("[INFO] {}", format!($($arg)*));
+        use log::{info as log_info};
+        log_info!("{}", format!($($arg)*));
     };
 } 

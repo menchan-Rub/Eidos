@@ -1,0 +1,96 @@
+// JSON構築用のDSLサンプル
+
+// JSON構文定義
+syntax json {
+    // オブジェクト構文: { key: value, ... }
+    rule object = "{" (pair ("," pair)*)? "}";
+    // キーと値のペア: "key": value
+    rule pair = string ":" value;
+    // 配列構文: [value, value, ...]
+    rule array = "[" (value ("," value)*)? "]";
+    // JSON値: 文字列、数値、オブジェクト、配列、真偽値、null
+    rule value = string | number | object | array | "true" | "false" | "null";
+}
+
+// オブジェクト構築のセマンティクス
+semantics json::object(pairs) => {
+    let obj = JsonObject::new();
+    for pair in pairs {
+        obj.insert(pair.key, pair.value);
+    }
+    obj
+}
+
+// 配列構築のセマンティクス
+semantics json::array(values) => {
+    let arr = JsonArray::new();
+    for value in values {
+        arr.push(value);
+    }
+    arr
+}
+
+// JsonValue型の定義
+enum JsonValue {
+    String(String),
+    Number(Float),
+    Boolean(Bool),
+    Array(JsonArray),
+    Object(JsonObject),
+    Null,
+}
+
+// JsonObject型の定義
+struct JsonObject {
+    entries: std::collections::HashMap<String, JsonValue>,
+}
+
+impl JsonObject {
+    fn new() -> Self {
+        Self { entries: std::collections::HashMap::new() }
+    }
+    
+    fn insert(&mut self, key: String, value: JsonValue) {
+        self.entries.insert(key, value);
+    }
+    
+    fn to_string(&self) -> String {
+        // 実装省略
+        "{ ... }".to_string()
+    }
+}
+
+// JsonArray型の定義
+struct JsonArray {
+    elements: Vec<JsonValue>,
+}
+
+impl JsonArray {
+    fn new() -> Self {
+        Self { elements: Vec::new() }
+    }
+    
+    fn push(&mut self, value: JsonValue) {
+        self.elements.push(value);
+    }
+}
+
+// DSLを使用したサンプル
+fn main(): Int {
+    // DSLを使ってJSONを構築
+    let config = {
+        "name": "設定ファイル",
+        "version": 1.0,
+        "enabled": true,
+        "features": ["編集", "保存", "共有"],
+        "settings": {
+            "theme": "dark",
+            "fontSize": 12
+        }
+    };
+    
+    // 構築したJSONを表示
+    println("JSON: {}", config.to_string());
+    
+    return 0;
+} 

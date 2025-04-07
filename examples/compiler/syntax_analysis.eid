@@ -1,0 +1,191 @@
+// Eidos言語での構文解析DSL実装
+
+// 構文解析用のDSL定義
+syntax parser {
+    // 基本的な式
+    rule expr = term (("+" | "-") term)*;
+    rule term = factor (("*" | "/") factor)*;
+    rule factor = number | "(" expr ")" | identifier;
+    
+    // 変数宣言
+    rule var_decl = "let" identifier "=" expr ";";
+    
+    // 関数定義
+    rule function = "fn" identifier "(" param_list? ")" (":" type)? block;
+    rule param_list = param ("," param)*;
+    rule param = identifier ":" type;
+    rule type = identifier;
+    
+    // 制御構造
+    rule if_stmt = "if" expr block ("else" (if_stmt | block))?;
+    rule while_stmt = "while" expr block;
+    rule return_stmt = "return" expr? ";";
+    
+    // ブロック
+    rule block = "{" statement* "}";
+    rule statement = var_decl | if_stmt | while_stmt | return_stmt | expr_stmt;
+    rule expr_stmt = expr ";";
+    
+    // プログラム
+    rule program = declaration*;
+    rule declaration = function | var_decl;
+}
+
+// 構文木ノード型の定義
+enum NodeType {
+    Program,
+    VarDecl,
+    Function,
+    Param,
+    Block,
+    IfStmt,
+    WhileStmt,
+    ReturnStmt,
+    ExprStmt,
+    BinaryExpr,
+    GroupingExpr,
+    LiteralExpr,
+    IdentifierExpr,
+}
+
+// 構文木ノード
+struct ASTNode {
+    type: NodeType,
+    value: String,
+    children: Vec<ASTNode>,
+    location: SourceLocation,
+}
+
+// ソース位置情報
+struct SourceLocation {
+    line: Int,
+    column: Int,
+    length: Int,
+}
+
+// 構文解析セマンティクス
+semantics parser::program(declarations) => {
+    let node = ASTNode {
+        type: NodeType::Program,
+        value: "",
+        children: vec![],
+        location: SourceLocation { line: 0, column: 0, length: 0 },
+    };
+    
+    for decl in declarations {
+        node.children.push(decl);
+    }
+    
+    node
+}
+
+semantics parser::var_decl(let_token, name, _, value, _) => {
+    ASTNode {
+        type: NodeType::VarDecl,
+        value: name.text,
+        children: vec![value],
+        location: name.location,
+    }
+}
+
+semantics parser::function(fn_token, name, _, params, _, return_type, body) => {
+    let mut node = ASTNode {
+        type: NodeType::Function,
+        value: name.text,
+        children: vec![],
+        location: name.location,
+    };
+    
+    // パラメータを追加
+    if let Some(param_list) = params {
+        for param in param_list {
+            node.children.push(param);
+        }
+    }
+    
+    // 戻り値の型があれば追加
+    if let Some(rt) = return_type {
+        let type_node = ASTNode {
+            type: NodeType::Param,
+            value: rt.text,
+            children: vec![],
+            location: rt.location,
+        };
+        node.children.push(type_node);
+    }
+    
+    // 関数本体を追加
+    node.children.push(body);
+    
+    node
+}
+
+semantics parser::expr(left, operators_and_rights) => {
+    let mut result = left;
+    
+    for (op, right) in operators_and_rights {
+        result = ASTNode {
+            type: NodeType::BinaryExpr,
+            value: op.text,
+            children: vec![result, right],
+            location: op.location,
+        };
+    }
+    
+    result
+}
+
+// メイン関数 - パーサーのテスト
+fn main(): Int {
+    let source = r#"
+        let answer = 42;
+        
+        fn add(a: Int, b: Int): Int {
+            return a + b;
+        }
+        
+        fn factorial(n: Int): Int {
+            if n <= 1 {
+                return 1;
+            } else {
+                return n * factorial(n - 1);
+            }
+        }
+    "#;
+    
+    // トークン化（簡略化）
+    let tokens = tokenize(source);
+    
+    // 構文解析DSLを使ってパース
+    with parser {
+        let ast = parse_program(tokens);
+        print_ast(ast, 0);
+    }
+    
+    return 0;
+}
+
+// トークン化関数（実際には字句解析器が生成）
+fn tokenize(source: String): Vec<Token> {
+    // 簡略化のためスタブ実装
+    let tokens = vec![];
+    println("ソースをトークン化: {} 文字", source.len());
+    return tokens;
+}
+
+// ASTを出力する補助関数
+fn print_ast(node: ASTNode, indent: Int): Unit {
+    // インデントを生成
+    let indent_str = String::new();
+    for i in 0..indent {
+        indent_str.push_str("  ");
+    }
+    
+    // ノードタイプと値を出力
+    println("{}{}({})", indent_str, node.type, node.value);
+    
+    // 子ノードを再帰的に出力
+    for child in node.children {
+        print_ast(child, indent + 1);
+    }
+} 

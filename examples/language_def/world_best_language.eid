@@ -1,0 +1,465 @@
+// Eidos: 世界一の汎用言語を作るためのDSL
+// この例では、最先端の言語機能を備えた汎用言語「Stellar」を定義します
+
+// 言語定義のインポート
+import eidos.core.language_def;
+import eidos.core.syntax;
+import eidos.types.type_system;
+import eidos.semantics.semantics_def;
+import eidos.memory.memory_model;
+import eidos.optimization.optimizer;
+
+// Stellar言語の定義
+language Stellar {
+    version: "0.1.0",
+    
+    // 構文定義
+    syntax {
+        // トークン定義
+        tokens {
+            // キーワード
+            keyword: ["if", "else", "while", "for", "fn", "return", "let", "var", 
+                     "const", "match", "class", "trait", "impl", "async", "await", 
+                     "pub", "type", "enum", "struct", "self", "super", "module",
+                     "import", "export", "unsafe", "try", "catch", "finally"];
+            
+            // 演算子
+            operator: ["+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=",
+                      "&&", "||", "!", "&", "|", "^", "~", "<<", ">>", ".", "->", "=>",
+                      "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="];
+            
+            // 区切り文字
+            delimiter: [";", ",", ".", ":", "::", "{", "}", "(", ")", "[", "]"];
+            
+            // 識別子パターン
+            identifier: "[a-zA-Z_][a-zA-Z0-9_]*";
+            
+            // 数値リテラル
+            integer: "[0-9]+|0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+";
+            float: "[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?";
+            
+            // 文字列リテラル
+            string: "\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*'";
+            
+            // コメント
+            line_comment: "//.*";
+            block_comment: "/\\*([^*]|\\*[^/])*\\*/";
+        }
+        
+        // 文法規則
+        rules {
+            // プログラムは複数の宣言から成る
+            Program -> Declaration*;
+            
+            // 宣言の種類
+            Declaration -> FunctionDecl | ClassDecl | TraitDecl | ImplDecl |
+                          TypeDecl | EnumDecl | StructDecl | VariableDecl |
+                          ModuleDecl | ImportDecl | ExportDecl;
+            
+            // 関数宣言
+            FunctionDecl -> "fn" Identifier GenericParams? "(" Parameters? ")" 
+                           ("->" Type)? Block;
+            
+            // クラス宣言
+            ClassDecl -> "class" Identifier GenericParams? (":" TypeList)? "{" 
+                        (FieldDecl | MethodDecl)* "}";
+            
+            // トレイト宣言（インターフェース）
+            TraitDecl -> "trait" Identifier GenericParams? (":" TypeList)? "{" 
+                        MethodSignature* "}";
+            
+            // 実装宣言
+            ImplDecl -> "impl" GenericParams? Type "for" Type "{" MethodDecl* "}";
+            
+            // 型宣言
+            TypeDecl -> "type" Identifier GenericParams? "=" Type ";";
+            
+            // 列挙型宣言
+            EnumDecl -> "enum" Identifier GenericParams? "{" EnumVariants? "}";
+            EnumVariants -> EnumVariant ("," EnumVariant)* ","?;
+            EnumVariant -> Identifier ("(" Types? ")")? ("=" Expression)?;
+            
+            // 構造体宣言
+            StructDecl -> "struct" Identifier GenericParams? "{" FieldDecls? "}";
+            FieldDecls -> FieldDecl ("," FieldDecl)* ","?;
+            FieldDecl -> Identifier ":" Type;
+            
+            // 変数宣言
+            VariableDecl -> ("let" | "var" | "const") Identifier (":" Type)? 
+                           ("=" Expression)? ";";
+            
+            // モジュール宣言
+            ModuleDecl -> "module" Identifier "{" Declaration* "}";
+            
+            // インポート宣言
+            ImportDecl -> "import" ImportPath ("as" Identifier)? ";";
+            ImportPath -> Identifier ("." Identifier)*;
+            
+            // エクスポート宣言
+            ExportDecl -> "export" (Declaration | "{" IdentifierList "}") ";";
+            
+            // 式
+            Expression -> LiteralExpr | IdentifierExpr | BinaryExpr | UnaryExpr |
+                         CallExpr | IndexExpr | MemberExpr | LambdaExpr | IfExpr |
+                         MatchExpr | BlockExpr | AsyncExpr | AwaitExpr | TryExpr;
+            
+            // リテラル式
+            LiteralExpr -> IntegerLiteral | FloatLiteral | StringLiteral | 
+                          BooleanLiteral | NullLiteral | ArrayLiteral | ObjectLiteral;
+            
+            // 文
+            Statement -> ExpressionStmt | VariableDecl | AssignmentStmt | IfStmt |
+                        WhileStmt | ForStmt | ReturnStmt | BreakStmt | ContinueStmt |
+                        ThrowStmt | TryCatchStmt;
+            
+            // ブロック
+            Block -> "{" Statement* "}";
+            
+            // その他の規則も同様に定義...
+        }
+        
+        // エラー回復戦略
+        error_recovery {
+            sync_tokens: [";", "}", ")"];
+            insertion_rules: [
+                { missing: ";", after: ["Expression", "VariableDecl"] },
+                { missing: ")", after: ["Parameters"], before: ["Block", "->"] }
+            ];
+            replacement_rules: [
+                { expected: ":", found: "=", context: "FieldDecl" }
+            ];
+        }
+    }
+    
+    // 型システム定義
+    type_system {
+        // 基本型
+        base_types: {
+            integers: ["i8", "i16", "i32", "i64", "i128", "isize"],
+            unsigned: ["u8", "u16", "u32", "u64", "u128", "usize"],
+            floats: ["f32", "f64"],
+            boolean: "bool",
+            character: "char",
+            string: "String",
+            null: "Null",
+            never: "Never",
+            unit: "Unit",
+        },
+        
+        // 型構築子
+        type_constructors: {
+            array: "Array<T>",
+            vector: "Vec<T>",
+            option: "Option<T>",
+            result: "Result<T, E>",
+            reference: "&T",
+            mutable_reference: "&mut T",
+            function: "Fn(T1, T2, ...) -> R",
+            tuple: "(T1, T2, ...)",
+            map: "Map<K, V>",
+            set: "Set<T>",
+        },
+        
+        // 型推論ルール
+        inference_rules: {
+            literals: {
+                integer_default: "i32",
+                float_default: "f64",
+                infer_from_context: true,
+            },
+            variables: {
+                local_type_deduction: true,
+                flow_sensitive: true,
+            },
+            functions: {
+                return_type_deduction: true,
+                parameter_type_deduction: true,
+            },
+        },
+        
+        // 型判定ルール
+        type_judgments: {
+            assignability: "structural_with_nominal_tags",
+            subtyping: "gradual_with_variance",
+            generics: "higher_kinded_types",
+            specialization: "explicit_with_inference",
+        },
+        
+        // 型安全性保証
+        safety_guarantees: {
+            null_safety: "strict",
+            memory_safety: "compile_time_verification",
+            thread_safety: "type_enforced",
+            exception_safety: "checked_at_compile_time",
+        },
+    }
+    
+    // セマンティクス定義
+    semantics {
+        // 実行モデル
+        execution_model: Hybrid([Functional, ObjectOriented, Concurrent]),
+        
+        // 評価戦略
+        evaluation_strategy: Strict,  // 基本は正格評価
+        
+        // 副作用モデル
+        side_effect_model: Controlled,  // 制御された副作用
+        
+        // バインディング戦略
+        binding_strategy: LexicalScope,
+        
+        // 制御フロー
+        control_flow: {
+            conditionals: {
+                if_then_else: "expression_based",
+                pattern_matching: "exhaustive_checking",
+            },
+            loops: {
+                iteration: ["while", "for", "loop", "iterator_based"],
+                early_exit: ["break", "continue", "return", "labeled"],
+            },
+            error_handling: {
+                exceptions: false,
+                results: "monadic_with_sugar",
+                panics: "unrecoverable_failures_only",
+            },
+            concurrency: {
+                model: "async_await",
+                channels: "message_passing",
+                parallelism: "data_parallelism_with_safety",
+            },
+        },
+        
+        // データ操作
+        data_manipulation: {
+            mutability: "explicit_by_default",
+            references: "lifetime_tracked",
+            destructuring: "pattern_based",
+            metaprogramming: "hygienic_macros_with_reflection",
+        },
+        
+        // モジュールシステム
+        module_system: {
+            imports: "explicit_with_renaming",
+            exports: "explicit_with_visibility",
+            namespaces: "hierarchical",
+            circular_dependencies: "allowed_with_restrictions",
+        },
+    }
+    
+    // メモリモデル定義
+    memory_model {
+        // 管理戦略
+        management_strategy: Hybrid([Ownership, RegionBased, ReferenceCount]),
+        
+        // 所有権モデル
+        ownership: {
+            borrowing: "strict_lifetimes",
+            move_semantics: true,
+            copy_semantics: "explicit_via_trait",
+        },
+        
+        // 割り当て戦略
+        allocation: {
+            stack: "value_types_and_fixed_size",
+            heap: "dynamic_and_large_objects",
+            regions: "short_lived_temporary_objects",
+            pools: "fixed_size_frequent_allocations",
+        },
+        
+        // ガベージコレクション
+        garbage_collection: {
+            strategy: "hybrid",
+            collector_types: ["generational", "concurrent_mark_sweep"],
+            tuning_parameters: {
+                min_heap: "adaptive",
+                max_pause: "10ms",
+                collection_triggers: ["allocation_threshold", "time_based"],
+            },
+        },
+        
+        // メモリ安全性
+        safety: {
+            bounds_checking: "optimized_with_elision",
+            use_after_free: "prevented_at_compile_time",
+            data_races: "prevented_by_type_system",
+            memory_leaks: "checked_via_ownership",
+        },
+        
+        // メモリ配置
+        layout: {
+            alignment: "platform_optimal",
+            packing: "explicit_control",
+            cache_locality: "data_oriented_design_support",
+            prefetching: "compiler_guided_with_hints",
+        },
+    }
+    
+    // 最適化定義
+    optimization {
+        // デフォルト最適化レベル
+        default_level: Speed2,
+        
+        // パスセット
+        passes: {
+            // 基本最適化
+            basic: [
+                "constant_folding",
+                "constant_propagation",
+                "dead_code_elimination",
+                "common_subexpression_elimination",
+            ],
+            
+            // 中間レベル最適化
+            intermediate: [
+                "function_inlining",
+                "loop_invariant_code_motion",
+                "loop_unrolling",
+                "tail_recursion_elimination",
+            ],
+            
+            // 高度な最適化
+            advanced: [
+                "auto_vectorization",
+                "link_time_optimization",
+                "profile_guided_optimization",
+                "whole_program_optimization",
+            ],
+            
+            // 特殊最適化
+            specialized: {
+                fp_math: ["fp_contract", "fast_math", "reassociation"],
+                pattern_matching: ["decision_tree_optimization", "fallthrough_optimization"],
+                closures: ["closure_inlining", "closure_conversion"],
+                generics: ["monomorphization", "specialization"],
+            },
+        },
+        
+        // 特定ターゲット向け最適化
+        target_specific: {
+            "x86_64": ["sse4", "avx2", "cache_line_alignment"],
+            "aarch64": ["neon", "crypto_extensions", "cache_prefetch"],
+            "wasm": ["simd", "memory_optimization", "call_overhead_reduction"],
+        },
+    }
+    
+    // 標準ライブラリ定義
+    standard_library {
+        core_modules: [
+            "core", "std", "collections", "io", "async", "net",
+            "time", "math", "text", "crypto", "data", "sys"
+        ],
+        
+        required_features: [
+            "iterators", "concurrency", "error_handling",
+            "serialization", "string_manipulation", "containers"
+        ],
+        
+        optional_features: [
+            "networking", "graphics", "database", "web", "embedded"
+        ],
+    }
+    
+    // ターゲットとツールチェーン
+    targets {
+        default: "native",
+        supported: [
+            "native", "wasm", "llvm_ir", "javascript"
+        ],
+        
+        toolchain: {
+            compiler: "stellar_compiler",
+            package_manager: "stellar_pkg",
+            build_system: "stellar_build",
+            language_server: "stellar_ls",
+            formatter: "stellar_fmt",
+            documentation: "stellar_doc",
+        },
+    }
+}
+
+// 言語構文の例
+fn main() {
+    // 変数定義
+    let name: String = "Stellar";
+    let version = 1.0;  // 型推論
+    const MAX_ITEMS: usize = 100;
+    
+    // データ構造の例
+    let point = Point { x: 10, y: 20 };
+    let values = [1, 2, 3, 4, 5];
+    let map = Map<String, i32>::new();
+    
+    // 関数型プログラミング
+    let doubled = values.map(|x| x * 2);
+    let sum = values.fold(0, |acc, x| acc + x);
+    
+    // パターンマッチング
+    match get_status() {
+        Status::Success(value) => println("Success: {}", value),
+        Status::Error(error) if is_recoverable(error) => retry(),
+        Status::Error(error) => handle_error(error),
+        _ => handle_unknown(),
+    }
+    
+    // 並行処理
+    async {
+        let result = fetch_data().await?;
+        process_data(result).await
+    }.spawn();
+    
+    // メモリ安全性と所有権
+    let data = vec![1, 2, 3];
+    process(&data);  // 借用
+    let owned_data = data;  // 所有権の移動
+    
+    // リージョンベースのメモリ管理
+    region temp {
+        let large_data = load_temporary_data();
+        process_in_place(large_data);
+    }  // リージョン終了時に自動的に解放
+    
+    // 結果型によるエラー処理
+    let result = try {
+        let file = File::open("data.txt")?;
+        let content = file.read_to_string()?;
+        parse_content(content)?
+    };
+    
+    println("Program finished with: {}", result);
+}
+
+// メモリ安全性とゼロコスト抽象化の例
+struct Buffer<T> @region(R) {
+    data: &R [T],
+    length: usize,
+}
+
+impl<T> Buffer<T> @region(R) {
+    // リージョン内で安全に動作するメソッド
+    fn process(self) -> Result<usize, Error> {
+        // ...
+    }
+}
+
+// 型の拡張と実装
+trait Serializable {
+    fn serialize(&self) -> Vec<u8>;
+    fn deserialize(data: &[u8]) -> Result<Self, Error>;
+}
+
+impl Serializable for User {
+    fn serialize(&self) -> Vec<u8> {
+        // ...
+    }
+    
+    fn deserialize(data: &[u8]) -> Result<Self, Error> {
+        // ...
+    }
+}
+
+// コンパイラの実行方法
+// $ stellar build world_best_language.eid --optimize=speed3 --target=native
+
+// 実行結果
+// Hello from the world's best language! 

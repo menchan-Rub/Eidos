@@ -1,0 +1,10 @@
+// Eidos言語での基本的なHello Worldプログラム
+
+/// プログラムのエントリーポイント
+fn main(): Int {
+    // 標準出力に文字列を出力
+    println("Hello, World from Eidos!");
+    
+    // 正常終了（0を返す）
+    return 0;
+} 
